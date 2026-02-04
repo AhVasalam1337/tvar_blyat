@@ -3,37 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mega Clicker</title>
+    <title>Cyber Clicker</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
     <style>
-        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
-        canvas { border-radius: 0px; }
+        body { margin: 0; background-color: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
     </style>
 </head>
 <body>
-
 <script>
     const tg = window.Telegram.WebApp;
     tg.expand();
-    tg.ready();
 
     let score = 0;
     let clickPower = 1;
     let autoClickRate = 0;
     let upgradeClickCost = 15;
     let upgradeAutoCost = 25;
+    let isShopOpen = false;
+    let scoreText, infoText, txtClick, txtAuto, shopLayer;
 
-    let scoreText, infoText, btnClick, btnAuto, txtClick, txtAuto;
+    const config = {
+        type: Phaser.AUTO,
+        width: 400,
+        height: 600,
+        backgroundColor: '#1a1a1a',
+        scene: { preload: preload, create: create }
+    };
 
-    function saveGame() {
-        const data = { score, clickPower, autoClickRate, upgradeClickCost, upgradeAutoCost };
-        localStorage.setItem('clickerSaveData', JSON.stringify(data));
+    const game = new Phaser.Game(config);
+
+    function preload() {
+        // Используем сервис wsrv.nl для обхода блокировок Imgur (CORS)
+        const proxy = "https://wsrv.nl/?url=";
+        const bgUrl = "https://i.imgur.com/VbrseLE.jpeg";
+        const heroUrl = "https://i.imgur.com/FObb0sw.png";
+
+        this.load.image('bg', proxy + bgUrl);
+        this.load.image('hero', proxy + heroUrl);
+        
+        // Обработка ошибок загрузки
+        this.load.on('loaderror', (file) => {
+            console.error('Ошибка загрузки файла:', file.src);
+        });
     }
 
-    function loadGame() {
-        const saved = localStorage.getItem('clickerSaveData');
-        if (saved) {
+    function create() {
+        // Загрузка сохранений
+        const saved = localStorage.getItem('cyberClickerSave');
+        if(saved) {
             const d = JSON.parse(saved);
             score = d.score || 0;
             clickPower = d.clickPower || 1;
@@ -41,110 +59,97 @@
             upgradeClickCost = d.upgradeClickCost || 15;
             upgradeAutoCost = d.upgradeAutoCost || 25;
         }
-    }
 
-    const config = {
-        type: Phaser.AUTO,
-        width: 400,
-        height: 600,
-        scene: { preload: preload, create: create }
-    };
+        // Фон (если не загрузится - будет просто темный экран)
+        if (this.textures.exists('bg')) {
+            this.add.image(200, 300, 'bg').setDisplaySize(400, 600);
+        }
 
-    const game = new Phaser.Game(config);
+        // Герой
+        const hero = this.add.sprite(200, 320, 'hero').setInteractive();
+        if (this.textures.exists('hero')) {
+            hero.setDisplaySize(250, 250);
+        } else {
+            // Если герой не загрузился, рисуем временный квадрат
+            hero.setTexture('__WHITE');
+            hero.setDisplaySize(100, 100);
+            hero.setTint(0x00ffcc);
+        }
 
-    function preload() {
-        // Убедись, что файлы лежат в корне репозитория рядом с index.html
-        this.load.image('bg', 'bg.jpg');
-        this.load.image('hero', 'https://i.imgur.com/FObb0sw.png');
-    }
+        this.tweens.add({ targets: hero, y: 335, duration: 2000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
-    function create() {
-        loadGame();
+        scoreText = this.add.text(20, 25, '', { fontSize: '32px', fill: '#fff', fontFamily: 'Arial Black' }).setStroke('#000', 6);
+        infoText = this.add.text(20, 75, '', { fontSize: '14px', fill: '#00ffcc', fontFamily: 'Arial' }).setStroke('#000', 4);
 
-        let background = this.add.image(200, 300, 'bg');
-        background.setDisplaySize(400, 600);
-
-        const textStyle = { fontSize: '32px', fill: '#fff', fontFamily: 'Arial Black' };
-        scoreText = this.add.text(20, 20, '', textStyle).setStroke('#000', 6);
-        infoText = this.add.text(20, 70, '', { fontSize: '16px', fill: '#fff' }).setStroke('#000', 4);
-
-        const hero = this.add.sprite(200, 280, 'hero').setInteractive();
-        
         hero.on('pointerdown', (pointer) => {
+            if (isShopOpen) return;
             score += clickPower;
             updateUI();
-            
-            // Вибрация для Telegram
+            this.tweens.add({ targets: hero, scale: 0.95, duration: 50, yoyo: true });
+            showClickText(this, pointer.x, pointer.y, `+${clickPower}`);
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-
-            this.tweens.add({ targets: hero, scale: 1.1, duration: 50, yoyo: true });
-            showClickText(this, pointer.x, pointer.y, `+${clickPower}`, '#fff');
+            saveGame();
         });
 
-        // Кнопки магазина
-        btnClick = this.add.rectangle(200, 480, 340, 60, 0x3498db).setInteractive();
-        txtClick = this.add.text(200, 480, '', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
+        // КНОПКА МАГАЗИНА
+        const shopBtn = this.add.rectangle(350, 50, 60, 60, 0x000000, 0.6).setInteractive();
+        this.add.text(350, 50, '🛒', { fontSize: '30px' }).setOrigin(0.5);
 
-        btnClick.on('pointerdown', () => {
+        shopLayer = this.add.container(0, 0).setDepth(100).setVisible(false);
+        const overlay = this.add.rectangle(200, 300, 400, 600, 0x000000, 0.85).setInteractive();
+        const menuBg = this.add.rectangle(200, 300, 320, 380, 0x1a1a1a).setStroke('#00ffcc', 2);
+        const closeBtn = this.add.text(330, 140, '✕', { fontSize: '28px', fill: '#fff' }).setInteractive();
+        
+        const btn1 = this.add.rectangle(200, 260, 280, 70, 0x333333).setInteractive().setStroke('#3498db', 2);
+        txtClick = this.add.text(200, 260, '', { fontSize: '14px', fill: '#fff', align: 'center' }).setOrigin(0.5);
+
+        const btn2 = this.add.rectangle(200, 360, 280, 70, 0x333333).setInteractive().setStroke('#2ecc71', 2);
+        txtAuto = this.add.text(200, 360, '', { fontSize: '14px', fill: '#fff', align: 'center' }).setOrigin(0.5);
+
+        shopLayer.add([overlay, menuBg, closeBtn, btn1, txtClick, btn2, txtAuto]);
+
+        shopBtn.on('pointerdown', () => { isShopOpen = true; shopLayer.setVisible(true); updateUI(); });
+        closeBtn.on('pointerdown', () => { isShopOpen = false; shopLayer.setVisible(false); });
+
+        btn1.on('pointerdown', () => {
             if (score >= upgradeClickCost) {
                 score -= upgradeClickCost;
-                clickPower += 1;
-                upgradeClickCost = Math.floor(upgradeClickCost * 1.8);
-                saveGame();
-                updateUI();
-                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-            } else { shakeButton(this, btnClick); }
+                clickPower++;
+                upgradeClickCost = Math.floor(upgradeClickCost * 1.7);
+                updateUI(); saveGame();
+            }
         });
 
-        btnAuto = this.add.rectangle(200, 550, 340, 60, 0x2ecc71).setInteractive();
-        txtAuto = this.add.text(200, 550, '', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
-
-        btnAuto.on('pointerdown', () => {
+        btn2.on('pointerdown', () => {
             if (score >= upgradeAutoCost) {
                 score -= upgradeAutoCost;
-                autoClickRate += 1;
-                upgradeAutoCost = Math.floor(upgradeAutoCost * 1.6);
-                saveGame();
-                updateUI();
-                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-            } else { shakeButton(this, btnAuto); }
+                autoClickRate++;
+                upgradeAutoCost = Math.floor(upgradeAutoCost * 1.5);
+                updateUI(); saveGame();
+            }
         });
 
-        this.time.addEvent({
-            delay: 1000,
-            callback: () => {
-                if (autoClickRate > 0) {
-                    score += autoClickRate;
-                    updateUI();
-                    showClickText(this, 200, 200, `+${autoClickRate}`, '#f1c40f');
-                }
-            },
-            loop: true
-        });
-
+        this.time.addEvent({ delay: 1000, callback: () => { score += autoClickRate; updateUI(); }, loop: true });
         updateUI();
     }
 
     function updateUI() {
-        scoreText.setText('Очки: ' + Math.floor(score));
-        infoText.setText(`Сила клика: ${clickPower}\nАвтоклик: ${autoClickRate}/сек`);
-        txtClick.setText(`Улучшить клик (Цена: ${upgradeClickCost})`);
-        txtAuto.setText(`Купить автоклик (Цена: ${upgradeAutoCost})`);
+        scoreText.setText(Math.floor(score));
+        infoText.setText(`СИЛА ТАПА: ${clickPower}\nАВТО-СБОР: ${autoClickRate}/сек`);
+        txtClick.setText(`УЛУЧШИТЬ ТАП\nЦена: ${upgradeClickCost}`);
+        txtAuto.setText(`КУПИТЬ АВТО-БОТА\nЦена: ${upgradeAutoCost}`);
     }
 
-    function showClickText(scene, x, y, text, color) {
-        const t = scene.add.text(x, y, text, { fontSize: '28px', fill: color, fontFamily: 'Arial Black' }).setOrigin(0.5).setStroke('#000', 4);
+    function saveGame() {
+        localStorage.setItem('cyberClickerSave', JSON.stringify({
+            score, clickPower, autoClickRate, upgradeClickCost, upgradeAutoCost
+        }));
+    }
+
+    function showClickText(scene, x, y, text) {
+        const t = scene.add.text(x, y, text, { fontSize: '26px', fill: '#00ffcc', fontFamily: 'Arial Black' }).setOrigin(0.5).setStroke('#000', 4);
         scene.tweens.add({ targets: t, y: y - 100, alpha: 0, duration: 800, onComplete: () => t.destroy() });
-    }
-
-    function shakeButton(scene, button) {
-        scene.cameras.main.shake(100, 0.005);
-        button.setFillStyle(0xe74c3c);
-        scene.time.delayedCall(200, () => {
-            button.setFillStyle(button === btnClick ? 0x3498db : 0x2ecc71);
-        });
     }
 </script>
 </body>
 </html>
-

@@ -2,23 +2,25 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mega Clicker</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
     <style>
-        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-        canvas { border-radius: 10px; }
+        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
+        canvas { border-radius: 0px; }
     </style>
 </head>
 <body>
 
 <script>
-    // Параметры игры
-    let score = 0;
-    let clickPower = 1;      // Сила клика
-    let autoClickRate = 0;   // Автоклик в сек.
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
 
-    // Цены апгрейдов
+    let score = 0;
+    let clickPower = 1;
+    let autoClickRate = 0;
     let upgradeClickCost = 15;
     let upgradeAutoCost = 25;
 
@@ -51,37 +53,35 @@
     const game = new Phaser.Game(config);
 
     function preload() {
-        // Загружаем твои картинки из Whisk
-        this.load.image('bg', 'https://i.imgur.com/VbrseLE.jpeg');
-        this.load.image('hero', 'https://i.imgur.com/3vDcTgv.png');
+        // Убедись, что файлы лежат в корне репозитория рядом с index.html
+        this.load.image('bg', 'bg.jpg');
+        this.load.image('hero', 'soldier.png');
     }
 
     function create() {
         loadGame();
 
-        // 1. Фон
         let background = this.add.image(200, 300, 'bg');
         background.setDisplaySize(400, 600);
 
-        // 2. Интерфейс (с обводкой для читаемости)
         const textStyle = { fontSize: '32px', fill: '#fff', fontFamily: 'Arial Black' };
         scoreText = this.add.text(20, 20, '', textStyle).setStroke('#000', 6);
-        
         infoText = this.add.text(20, 70, '', { fontSize: '16px', fill: '#fff' }).setStroke('#000', 4);
 
-        // 3. Главный герой
         const hero = this.add.sprite(200, 280, 'hero').setInteractive();
-        // Если герой слишком большой, раскомментируй строку ниже и подбери число:
-        // hero.setScale(0.5); 
-
+        
         hero.on('pointerdown', (pointer) => {
             score += clickPower;
             updateUI();
-            this.tweens.add({ targets: hero, scale: hero.scale * 1.1, duration: 50, yoyo: true });
+            
+            // Вибрация для Telegram
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+
+            this.tweens.add({ targets: hero, scale: 1.1, duration: 50, yoyo: true });
             showClickText(this, pointer.x, pointer.y, `+${clickPower}`, '#fff');
         });
 
-        // 4. Магазин: Апгрейд Клика
+        // Кнопки магазина
         btnClick = this.add.rectangle(200, 480, 340, 60, 0x3498db).setInteractive();
         txtClick = this.add.text(200, 480, '', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
 
@@ -92,10 +92,10 @@
                 upgradeClickCost = Math.floor(upgradeClickCost * 1.8);
                 saveGame();
                 updateUI();
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
             } else { shakeButton(this, btnClick); }
         });
 
-        // 5. Магазин: Апгрейд Автоклика
         btnAuto = this.add.rectangle(200, 550, 340, 60, 0x2ecc71).setInteractive();
         txtAuto = this.add.text(200, 550, '', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
 
@@ -106,10 +106,10 @@
                 upgradeAutoCost = Math.floor(upgradeAutoCost * 1.6);
                 saveGame();
                 updateUI();
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
             } else { shakeButton(this, btnAuto); }
         });
 
-        // Автоклик раз в секунду
         this.time.addEvent({
             delay: 1000,
             callback: () => {
@@ -121,9 +121,6 @@
             },
             loop: true
         });
-
-        // Автосохранение раз в 10 сек
-        this.time.addEvent({ delay: 10000, callback: saveGame, loop: true });
 
         updateUI();
     }
@@ -137,13 +134,7 @@
 
     function showClickText(scene, x, y, text, color) {
         const t = scene.add.text(x, y, text, { fontSize: '28px', fill: color, fontFamily: 'Arial Black' }).setOrigin(0.5).setStroke('#000', 4);
-        scene.tweens.add({
-            targets: t,
-            y: y - 100,
-            alpha: 0,
-            duration: 800,
-            onComplete: () => t.destroy()
-        });
+        scene.tweens.add({ targets: t, y: y - 100, alpha: 0, duration: 800, onComplete: () => t.destroy() });
     }
 
     function shakeButton(scene, button) {

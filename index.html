@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -7,7 +7,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
     <style>
-        body { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
     </style>
 </head>
 <body>
@@ -20,9 +20,8 @@
     let autoClickRate = 0;
     let upgradeClickCost = 15;
     let upgradeAutoCost = 25;
-    let isShopOpen = false;
-
-    let scoreText, infoText, shopGroup;
+    
+    let scoreText, infoText, shopUI; // shopUI будет хранить всё меню
 
     const config = {
         type: Phaser.AUTO,
@@ -34,7 +33,6 @@
     const game = new Phaser.Game(config);
 
     function preload() {
-        // Загружаем файлы, которые ты залил на GitHub
         this.load.image('bg', 'bg.jpg');
         this.load.image('hero', 'soldier.png');
     }
@@ -42,7 +40,7 @@
     function create() {
         const scene = this;
 
-        // Загрузка сейвов
+        // Загрузка
         const saved = localStorage.getItem('cyberSave');
         if(saved) {
             const d = JSON.parse(saved);
@@ -53,90 +51,79 @@
             upgradeAutoCost = d.upgradeAutoCost || 25;
         }
 
-        // 1. ФОН (Центрируем)
+        // 1. ФОН
         this.add.image(200, 300, 'bg').setDisplaySize(400, 600);
 
         // 2. ГЕРОЙ
-        const hero = this.add.sprite(200, 320, 'hero').setInteractive();
-        hero.setDisplaySize(260, 260);
+        const hero = this.add.sprite(200, 350, 'hero').setInteractive();
+        hero.setDisplaySize(250, 250);
 
-        // Анимация героя
-        this.tweens.add({ targets: hero, y: 335, duration: 2000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        // 3. ТЕКСТЫ
+        scoreText = this.add.text(20, 40, '', { fontSize: '45px', fill: '#fff', fontFamily: 'Arial Black' }).setStroke('#000', 8);
+        infoText = this.add.text(20, 100, '', { fontSize: '18px', fill: '#00ffcc', fontFamily: 'Arial Black' }).setStroke('#000', 4);
 
-        // 3. ТЕКСТЫ (Поверх фона)
-        scoreText = this.add.text(20, 30, '', { fontSize: '32px', fill: '#fff', fontFamily: 'Arial Black' }).setStroke('#000', 6);
-        infoText = this.add.text(20, 80, '', { fontSize: '14px', fill: '#00ffcc', fontFamily: 'Arial' }).setStroke('#000', 4);
-
-        // 4. КЛИК ПО ГЕРОЮ
+        // КЛИК
         hero.on('pointerdown', (pointer) => {
-            if (isShopOpen) return;
+            if (shopUI) return; // Если магазин открыт, клик не работает
             score += clickPower;
             updateUI();
-            this.tweens.add({ targets: hero, scale: 0.9, duration: 50, yoyo: true });
+            this.tweens.add({ targets: hero, scale: 0.8, duration: 50, yoyo: true });
             
-            // Всплывающий текст
-            const t = this.add.text(pointer.x, pointer.y, `+${clickPower}`, { fontSize: '24px', fill: '#00ffcc', fontFamily: 'Arial Black' });
+            let t = this.add.text(pointer.x, pointer.y, `+${clickPower}`, { fontSize: '30px', fill: '#fff', fontFamily: 'Arial Black' });
             this.tweens.add({ targets: t, y: pointer.y - 100, alpha: 0, duration: 800, onComplete: () => t.destroy() });
             
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
             saveGame();
         });
 
-        // 5. КНОПКА МАГАЗИНА (В углу)
-        const shopBtn = this.add.rectangle(350, 55, 60, 60, 0x000000, 0.5).setInteractive();
-        this.add.text(350, 55, '🛒', { fontSize: '30px' }).setOrigin(0.5);
-
-        // 6. МАГАЗИН (Создаем элементы и СРАЗУ прячем их)
-        shopGroup = this.add.group();
+        // 4. КНОПКА МАГАЗИНА (Просто текст-иконка, чтобы ничто не перекрывало)
+        const shopBtn = this.add.text(330, 40, '🛒', { fontSize: '50px' }).setInteractive();
         
-        const overlay = this.add.rectangle(200, 300, 400, 600, 0x000000, 0.8).setInteractive().setVisible(false);
-        const menuBg = this.add.rectangle(200, 300, 320, 350, 0x1a1a1a).setStroke('#00ffcc', 2).setVisible(false);
-        const closeBtn = this.add.text(330, 140, '✕', { fontSize: '32px', fill: '#fff' }).setInteractive().setVisible(false);
-        
-        const btn1 = this.add.rectangle(200, 260, 280, 60, 0x333333).setInteractive().setVisible(false);
-        const t1 = this.add.text(200, 260, '', { fontSize: '14px', fill: '#fff' }).setOrigin(0.5).setVisible(false);
-
-        const btn2 = this.add.rectangle(200, 340, 280, 60, 0x333333).setInteractive().setVisible(false);
-        const t2 = this.add.text(200, 340, '', { fontSize: '14px', fill: '#fff' }).setOrigin(0.5).setVisible(false);
-
-        shopGroup.addMultiple([overlay, menuBg, closeBtn, btn1, t1, btn2, t2]);
-
-        // ЛОГИКА МАГАЗИНА
         shopBtn.on('pointerdown', () => {
-            isShopOpen = true;
-            shopGroup.getChildren().forEach(child => child.setVisible(true));
-            updateUI();
+            if (!shopUI) createShop(scene);
         });
 
-        closeBtn.on('pointerdown', () => {
-            isShopOpen = false;
-            shopGroup.getChildren().forEach(child => child.setVisible(false));
-        });
+        // Функция создания магазина
+        function createShop(scene) {
+            shopUI = scene.add.container(0, 0).setDepth(100);
+            
+            const bg = scene.add.rectangle(200, 300, 400, 600, 0x000000, 0.8).setInteractive();
+            const win = scene.add.rectangle(200, 300, 300, 350, 0x222222).setStroke('#00ffcc', 2);
+            const close = scene.add.text(320, 140, '✕', { fontSize: '35px', fill: '#fff' }).setInteractive();
+            
+            const b1 = scene.add.rectangle(200, 260, 250, 60, 0x333333).setInteractive();
+            const t1 = scene.add.text(200, 260, `ТАП: ${upgradeClickCost}`, { fontSize: '16px' }).setOrigin(0.5);
 
-        // Покупки
-        btn1.on('pointerdown', () => {
-            if (score >= upgradeClickCost) {
-                score -= upgradeClickCost; clickPower++; upgradeClickCost = Math.floor(upgradeClickCost * 1.8);
-                updateUI(); saveGame();
-            }
-        });
+            const b2 = scene.add.rectangle(200, 340, 250, 60, 0x333333).setInteractive();
+            const t2 = scene.add.text(200, 340, `АВТО: ${upgradeAutoCost}`, { fontSize: '16px' }).setOrigin(0.5);
 
-        btn2.on('pointerdown', () => {
-            if (score >= upgradeAutoCost) {
-                score -= upgradeAutoCost; autoClickRate++; upgradeAutoCost = Math.floor(upgradeAutoCost * 1.6);
-                updateUI(); saveGame();
-            }
-        });
+            shopUI.add([bg, win, close, b1, t1, b2, t2]);
+
+            close.on('pointerdown', () => { shopUI.destroy(); shopUI = null; });
+
+            b1.on('pointerdown', () => {
+                if (score >= upgradeClickCost) {
+                    score -= upgradeClickCost; clickPower++; 
+                    upgradeClickCost = Math.floor(upgradeClickCost * 1.8);
+                    t1.setText(`ТАП: ${upgradeClickCost}`); updateUI(); saveGame();
+                }
+            });
+
+            b2.on('pointerdown', () => {
+                if (score >= upgradeAutoCost) {
+                    score -= upgradeAutoCost; autoClickRate++; 
+                    upgradeAutoCost = Math.floor(upgradeAutoCost * 1.6);
+                    t2.setText(`АВТО: ${upgradeAutoCost}`); updateUI(); saveGame();
+                }
+            });
+        }
 
         // Автоклик
         this.time.addEvent({ delay: 1000, callback: () => { score += autoClickRate; updateUI(); }, loop: true });
 
-        // Обновляем тексты в магазине
         function updateUI() {
             scoreText.setText(Math.floor(score));
             infoText.setText(`ТАП: +${clickPower} | АВТО: ${autoClickRate}/с`);
-            t1.setText(`Улучшить тап: ${upgradeClickCost}`);
-            t2.setText(`Авто-бот: ${upgradeAutoCost}`);
         }
         updateUI();
     }

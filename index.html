@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mega Clicker</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
+    <style>
+        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        canvas { border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+<script>
+    // Параметры игры
+    let score = 0;
+    let clickPower = 1;      // Сила клика
+    let autoClickRate = 0;   // Автоклик в сек.
+
+    // Цены апгрейдов
+    let upgradeClickCost = 15;
+    let upgradeAutoCost = 25;
+
+    let scoreText, infoText, btnClick, btnAuto, txtClick, txtAuto;
+
+    function saveGame() {
+        const data = { score, clickPower, autoClickRate, upgradeClickCost, upgradeAutoCost };
+        localStorage.setItem('clickerSaveData', JSON.stringify(data));
+    }
+
+    function loadGame() {
+        const saved = localStorage.getItem('clickerSaveData');
+        if (saved) {
+            const d = JSON.parse(saved);
+            score = d.score || 0;
+            clickPower = d.clickPower || 1;
+            autoClickRate = d.autoClickRate || 0;
+            upgradeClickCost = d.upgradeClickCost || 15;
+            upgradeAutoCost = d.upgradeAutoCost || 25;
+        }
+    }
+
+    const config = {
+        type: Phaser.AUTO,
+        width: 400,
+        height: 600,
+        scene: { preload: preload, create: create }
+    };
+
+    const game = new Phaser.Game(config);
+
+    function preload() {
+        // Загружаем твои картинки из Whisk
+        this.load.image('bg', 'https://i.imgur.com/VbrseLE.jpeg');
+        this.load.image('hero', 'https://i.imgur.com/3vDcTgv.png');
+    }
+
+    function create() {
+        loadGame();
+
+        // 1. Фон
+        let background = this.add.image(200, 300, 'bg');
+        background.setDisplaySize(400, 600);
+
+        // 2. Интерфейс (с обводкой для читаемости)
+        const textStyle = { fontSize: '32px', fill: '#fff', fontFamily: 'Arial Black' };
+        scoreText = this.add.text(20, 20, '', textStyle).setStroke('#000', 6);
+        
+        infoText = this.add.text(20, 70, '', { fontSize: '16px', fill: '#fff' }).setStroke('#000', 4);
+
+        // 3. Главный герой
+        const hero = this.add.sprite(200, 280, 'hero').setInteractive();
+        // Если герой слишком большой, раскомментируй строку ниже и подбери число:
+        // hero.setScale(0.5); 
+
+        hero.on('pointerdown', (pointer) => {
+            score += clickPower;
+            updateUI();
+            this.tweens.add({ targets: hero, scale: hero.scale * 1.1, duration: 50, yoyo: true });
+            showClickText(this, pointer.x, pointer.y, `+${clickPower}`, '#fff');
+        });
+
+        // 4. Магазин: Апгрейд Клика
+        btnClick = this.add.rectangle(200, 480, 340, 60, 0x3498db).setInteractive();
+        txtClick = this.add.text(200, 480, '', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
+
+        btnClick.on('pointerdown', () => {
+            if (score >= upgradeClickCost) {
+                score -= upgradeClickCost;
+                clickPower += 1;
+                upgradeClickCost = Math.floor(upgradeClickCost * 1.8);
+                saveGame();
+                updateUI();
+            } else { shakeButton(this, btnClick); }
+        });
+
+        // 5. Магазин: Апгрейд Автоклика
+        btnAuto = this.add.rectangle(200, 550, 340, 60, 0x2ecc71).setInteractive();
+        txtAuto = this.add.text(200, 550, '', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
+
+        btnAuto.on('pointerdown', () => {
+            if (score >= upgradeAutoCost) {
+                score -= upgradeAutoCost;
+                autoClickRate += 1;
+                upgradeAutoCost = Math.floor(upgradeAutoCost * 1.6);
+                saveGame();
+                updateUI();
+            } else { shakeButton(this, btnAuto); }
+        });
+
+        // Автоклик раз в секунду
+        this.time.addEvent({
+            delay: 1000,
+            callback: () => {
+                if (autoClickRate > 0) {
+                    score += autoClickRate;
+                    updateUI();
+                    showClickText(this, 200, 200, `+${autoClickRate}`, '#f1c40f');
+                }
+            },
+            loop: true
+        });
+
+        // Автосохранение раз в 10 сек
+        this.time.addEvent({ delay: 10000, callback: saveGame, loop: true });
+
+        updateUI();
+    }
+
+    function updateUI() {
+        scoreText.setText('Очки: ' + Math.floor(score));
+        infoText.setText(`Сила клика: ${clickPower}\nАвтоклик: ${autoClickRate}/сек`);
+        txtClick.setText(`Улучшить клик (Цена: ${upgradeClickCost})`);
+        txtAuto.setText(`Купить автоклик (Цена: ${upgradeAutoCost})`);
+    }
+
+    function showClickText(scene, x, y, text, color) {
+        const t = scene.add.text(x, y, text, { fontSize: '28px', fill: color, fontFamily: 'Arial Black' }).setOrigin(0.5).setStroke('#000', 4);
+        scene.tweens.add({
+            targets: t,
+            y: y - 100,
+            alpha: 0,
+            duration: 800,
+            onComplete: () => t.destroy()
+        });
+    }
+
+    function shakeButton(scene, button) {
+        scene.cameras.main.shake(100, 0.005);
+        button.setFillStyle(0xe74c3c);
+        scene.time.delayedCall(200, () => {
+            button.setFillStyle(button === btnClick ? 0x3498db : 0x2ecc71);
+        });
+    }
+</script>
+</body>
+</html>

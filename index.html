@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -7,14 +7,17 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
     <style>
-        body { margin: 0; background-color: #1a1a1a; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        body { margin: 0; padding: 0; background: #1a1a1a; overflow: hidden; }
+        canvas { display: block; }
     </style>
 </head>
 <body>
 <script>
+    // 1. Инициализация Телеграм
     const tg = window.Telegram.WebApp;
     tg.expand();
 
+    // 2. Настройки игры
     let score = 0;
     let clickPower = 1;
     let autoClickRate = 0;
@@ -22,29 +25,29 @@
     let upgradeAutoCost = 25;
     let isShopOpen = false;
 
-    let scoreText, infoText, txtClick, txtAuto;
-    let shopGroup = []; // Массив для управления магазином
-
     const config = {
         type: Phaser.AUTO,
-        width: 400,
-        height: 600,
+        width: window.innerWidth,
+        height: window.innerHeight,
         backgroundColor: '#1a1a1a',
+        parent: document.body,
         scene: { preload: preload, create: create }
     };
 
     const game = new Phaser.Game(config);
 
     function preload() {
-        // Прокси для обхода блокировок Imgur
-        const proxy = "https://wsrv.nl/?url=";
-        this.load.image('bg', proxy + "https://i.imgur.com/VbrseLE.jpeg");
-        this.load.image('hero', proxy + "https://i.imgur.com/FObb0sw.png");
+        // Прокси для картинок
+        const p = "https://wsrv.nl/?url=";
+        this.load.image('bg', p + "https://i.imgur.com/VbrseLE.jpeg");
+        this.load.image('hero', p + "https://i.imgur.com/FObb0sw.png");
     }
 
     function create() {
-        // Загрузка данных
-        const saved = localStorage.getItem('cyberClickerSave');
+        const scene = this;
+
+        // Загрузка сейвов
+        const saved = localStorage.getItem('cyberSave');
         if(saved) {
             const d = JSON.parse(saved);
             score = d.score || 0;
@@ -54,53 +57,73 @@
             upgradeAutoCost = d.upgradeAutoCost || 25;
         }
 
-        // 1. ФОН
-        if (this.textures.exists('bg')) {
-            this.add.image(200, 300, 'bg').setDisplaySize(400, 600);
-        }
+        // Фон на весь экран
+        let bg = scene.add.image(scene.cameras.main.centerX, scene.cameras.main.centerY, 'bg');
+        let scaleX = scene.cameras.main.width / bg.width;
+        let scaleY = scene.cameras.main.height / bg.height;
+        let scale = Math.max(scaleX, scaleY);
+        bg.setScale(scale).setScrollFactor(0);
 
-        // 2. ГЕРОЙ
-        const hero = this.add.sprite(200, 320, 'hero').setInteractive();
-        if (this.textures.exists('hero')) {
-            hero.setDisplaySize(250, 250);
-        } else {
-            hero.setTexture('__WHITE').setDisplaySize(150, 150).setTint(0x00ffcc);
-        }
+        // Герой
+        const hero = scene.add.sprite(scene.cameras.main.centerX, scene.cameras.main.centerY, 'hero').setInteractive();
+        hero.setScale(0.8);
 
-        // Анимация героя
-        this.tweens.add({ targets: hero, y: 340, duration: 2000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        // Тексты
+        const scoreText = scene.add.text(20, 40, 'Очки: 0', { fontSize: '28px', fill: '#fff', stroke: '#000', strokeThickness: 4 });
+        const infoText = scene.add.text(20, 80, '', { fontSize: '14px', fill: '#00ffcc' });
 
-        // 3. ТЕКСТЫ (создаем ПЕРЕД магазином, чтобы они были под ним)
-        scoreText = this.add.text(20, 25, '', { fontSize: '32px', fill: '#fff', fontFamily: 'Arial Black' }).setStroke('#000', 6);
-        infoText = this.add.text(20, 75, '', { fontSize: '14px', fill: '#00ffcc', fontFamily: 'Arial' }).setStroke('#000', 4);
+        // Магазин (группа)
+        const shopLayer = scene.add.container(0, 0).setDepth(100).setVisible(false);
+        const overlay = scene.add.rectangle(0, 0, scene.cameras.main.width * 2, scene.cameras.main.height * 2, 0x000000, 0.8).setInteractive();
+        const menuBg = scene.add.rectangle(scene.cameras.main.centerX, scene.cameras.main.centerY, 300, 350, 0x222222).setStroke('#00ffcc', 2);
+        const closeTxt = scene.add.text(scene.cameras.main.centerX + 120, scene.cameras.main.centerY - 160, '✕', { fontSize: '30px' }).setInteractive();
+        
+        const btn1 = scene.add.rectangle(scene.cameras.main.centerX, scene.cameras.main.centerY - 40, 250, 60, 0x333333).setInteractive();
+        const t1 = scene.add.text(scene.cameras.main.centerX, scene.cameras.main.centerY - 40, '', { fontSize: '14px' }).setOrigin(0.5);
 
-        // Клик по герою
-        hero.on('pointerdown', (pointer) => {
-            if (isShopOpen) return;
+        const btn2 = scene.add.rectangle(scene.cameras.main.centerX, scene.cameras.main.centerY + 40, 250, 60, 0x333333).setInteractive();
+        const t2 = scene.add.text(scene.cameras.main.centerX, scene.cameras.main.centerY + 40, '', { fontSize: '14px' }).setOrigin(0.5);
+
+        shopLayer.add([overlay, menuBg, closeTxt, btn1, t1, btn2, t2]);
+
+        // Кнопка магазина
+        const shopIcon = scene.add.text(scene.cameras.main.width - 60, 50, '🛒', { fontSize: '40px' }).setInteractive();
+
+        // Функции
+        const updateUI = () => {
+            scoreText.setText('Очки: ' + Math.floor(score));
+            infoText.setText(`Тап: +${clickPower} | Авто: ${autoClickRate}/с`);
+            t1.setText(`Улучшить тап: ${upgradeClickCost}`);
+            t2.setText(`Авто-кликер: ${upgradeAutoCost}`);
+        };
+
+        hero.on('pointerdown', () => {
+            if(isShopOpen) return;
             score += clickPower;
+            scene.tweens.add({ targets: hero, scale: 0.75, duration: 50, yoyo: true });
             updateUI();
-            this.tweens.add({ targets: hero, scale: 0.9, duration: 50, yoyo: true });
-            showClickText(this, pointer.x, pointer.y, `+${clickPower}`);
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-            saveGame();
+            if(tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
         });
 
-        // 4. КНОПКА МАГАЗИНА
-        const shopBtn = this.add.rectangle(350, 50, 60, 60, 0x000000, 0.7).setInteractive();
-        this.add.text(350, 50, '🛒', { fontSize: '30px' }).setOrigin(0.5);
+        shopIcon.on('pointerdown', () => { isShopOpen = true; shopLayer.setVisible(true); });
+        closeTxt.on('pointerdown', () => { isShopOpen = false; shopLayer.setVisible(false); });
 
-        // 5. ЭЛЕМЕНТЫ МАГАЗИНА (создаем и СРАЗУ прячем)
-        const overlay = this.add.rectangle(200, 300, 400, 600, 0x000000, 0.8).setInteractive().setVisible(false);
-        const menuBg = this.add.rectangle(200, 300, 320, 350, 0x1a1a1a).setStroke('#00ffcc', 2).setVisible(false);
-        const closeBtn = this.add.text(330, 140, '✕', { fontSize: '32px', fill: '#fff' }).setInteractive().setVisible(false);
+        btn1.on('pointerdown', () => {
+            if(score >= upgradeClickCost) {
+                score -= upgradeClickCost; clickPower++; upgradeClickCost *= 2; updateUI();
+            }
+        });
+
+        btn2.on('pointerdown', () => {
+            if(score >= upgradeAutoCost) {
+                score -= upgradeAutoCost; autoClickRate++; upgradeAutoCost *= 2; updateUI();
+            }
+        });
+
+        scene.time.addEvent({ delay: 1000, callback: () => { score += autoClickRate; updateUI(); }, loop: true });
         
-        const btn1 = this.add.rectangle(200, 260, 280, 60, 0x333333).setInteractive().setStroke('#3498db', 2).setVisible(false);
-        txtClick = this.add.text(200, 260, '', { fontSize: '14px', fill: '#fff' }).setOrigin(0.5).setVisible(false);
-
-        const btn2 = this.add.rectangle(200, 340, 280, 60, 0x333333).setInteractive().setStroke('#2ecc71', 2).setVisible(false);
-        txtAuto = this.add.text(200, 340, '', { fontSize: '14px', fill: '#fff' }).setOrigin(0.5).setVisible(false);
-
-        shopGroup = [overlay, menuBg, closeBtn, btn1, txtClick, btn2, txtAuto];
-
-        // Логика магазина
-        shopBtn.on('pointer
+        updateUI();
+    }
+</script>
+</body>
+</html>

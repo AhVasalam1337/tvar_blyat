@@ -1,151 +1,237 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cyber Clicker</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <title>Voxel Bear: Dual Hitbox Edition</title>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser-arcade-physics.min.js"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #222; }
+        canvas { display: block; }
     </style>
 </head>
 <body>
-<script>
-    const tg = window.Telegram.WebApp;
-    tg.expand();
-
-    let score = 0;
-    let clickPower = 1;
-    let autoClickRate = 0;
-    let upgradeClickCost = 15;
-    let upgradeAutoCost = 25;
-    
-    let scoreText, infoText, shopUI; // shopUI будет хранить всё меню
-
-    const config = {
-        type: Phaser.AUTO,
-        width: 400,
-        height: 600,
-        scene: { preload: preload, create: create }
-    };
-
-    const game = new Phaser.Game(config);
-
-    function preload() {
-        this.load.image('bg', 'bg.jpg');
-        this.load.image('hero', 'soldier.png');
-    }
-
-    function create() {
-        const scene = this;
-
-        // Загрузка
-        const saved = localStorage.getItem('cyberSave');
-        if(saved) {
-            const d = JSON.parse(saved);
-            score = d.score || 0;
-            clickPower = d.clickPower || 1;
-            autoClickRate = d.autoClickRate || 0;
-            upgradeClickCost = d.upgradeClickCost || 15;
-            upgradeAutoCost = d.upgradeAutoCost || 25;
-        }
-
-        // 1. ФОН
-        this.add.image(200, 300, 'bg').setDisplaySize(400, 600);
-
-        // 2. ГЕРОЙ
-        const hero = this.add.sprite(200, 350, 'hero').setInteractive();
-        hero.setDisplaySize(250, 250);
-
-        // 3. ТЕКСТЫ
-        scoreText = this.add.text(20, 40, '', { fontSize: '45px', fill: '#fff', fontFamily: 'Arial Black' }).setStroke('#000', 8);
-        infoText = this.add.text(20, 100, '', { fontSize: '18px', fill: '#00ffcc', fontFamily: 'Arial Black' }).setStroke('#000', 4);
-
-        // КЛИК
-        hero.on('pointerdown', (pointer) => {
-            if (shopUI) return; // Если магазин открыт, клик не работает
-            score += clickPower;
-            updateUI();
-            this.tweens.add({ targets: hero, scale: 0.8, duration: 50, yoyo: true });
-            
-            let t = this.add.text(pointer.x, pointer.y, `+${clickPower}`, { fontSize: '30px', fill: '#fff', fontFamily: 'Arial Black' });
-            this.tweens.add({ targets: t, y: pointer.y - 100, alpha: 0, duration: 800, onComplete: () => t.destroy() });
-            
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-            saveGame();
-        });
-
-        // 4. КНОПКА МАГАЗИНА (Просто текст-иконка, чтобы ничто не перекрывало)
-        const shopBtn = this.add.text(330, 40, '🛒', { fontSize: '50px' }).setInteractive();
+    <script>
+        const config = {
+            type: Phaser.AUTO,
+            width: window.innerWidth,
+            height: window.innerHeight,
+            pixelArt: true,
+            physics: { default: 'arcade', arcade: { debug: true } },
+            scene: { preload: preload, create: create, update: update }
+        };
         
-        shopBtn.on('pointerdown', () => {
-            if (!shopUI) createShop(scene);
-        });
+        const game = new Phaser.Game(config);
+        
+        let bear, beeSensor, score = 0, scoreText, hives, bees, walkTween;
+        let isPaused = true, isGameOver = false, dayTime = 0;
+        let bearSpeed = 350, gameOverText = null; 
+        let menuContainer, uiCamera;
+        let currentDifficulty = { beeSpeed: 240, spawnChance: 40 };
 
-        // Функция создания магазина
-function createShop(scene) {
-            isShopOpen = true; // Блокируем клики по герою
-            shopUI = scene.add.container(0, 0).setDepth(100);
-            
-            // Тёмный фон на весь экран (чтобы выделить магазин)
-            const bgOverlay = scene.add.rectangle(200, 300, 400, 600, 0x000000, 0.7).setInteractive();
-            
-            // Само окошко магазина (сделаем его чуть светлее и с рамкой)
-            const win = scene.add.rectangle(200, 300, 320, 380, 0x1a1a1a, 1).setStroke('#00ffcc', 2);
-            
-            const title = scene.add.text(200, 160, 'КИБЕР-ЛАВКА', { fontSize: '24px', fill: '#00ffcc', fontFamily: 'Arial Black' }).setOrigin(0.5);
-            const close = scene.add.text(330, 130, '✕', { fontSize: '32px', fill: '#fff' }).setInteractive();
-            
-            // Кнопки
-            const b1 = scene.add.rectangle(200, 260, 280, 70, 0x333333, 1).setInteractive().setStroke('#3498db', 2);
-            const t1 = scene.add.text(200, 260, `УЛУЧШИТЬ ТАП\nЦена: ${upgradeClickCost}`, { fontSize: '14px', align: 'center' }).setOrigin(0.5);
+        const BEAR_W = 130, BEAR_H = 170, DAY_DURATION = 30000;
 
-            const b2 = scene.add.rectangle(200, 350, 280, 70, 0x333333, 1).setInteractive().setStroke('#2ecc71', 2);
-            const t2 = scene.add.text(200, 350, `АВТО-БОТ\nЦена: ${upgradeAutoCost}`, { fontSize: '14px', align: 'center' }).setOrigin(0.5);
+        function preload() {
+            let width = this.cameras.main.width;
+            let height = this.cameras.main.height;
+            let loadingText = this.make.text({
+                x: width / 2, y: height / 2,
+                text: 'Загрузка: 0%',
+                style: { font: '24px Arial', fill: '#ffffff' }
+            }).setOrigin(0.5, 0.5);
 
-            shopUI.add([bgOverlay, win, title, close, b1, t1, b2, t2]);
+            this.load.on('progress', (v) => loadingText.setText('Загрузка: ' + Math.floor(v * 100) + '%'));
+            this.load.on('complete', () => loadingText.destroy());
 
-            close.on('pointerdown', () => { 
-                isShopOpen = false; 
-                shopUI.destroy(); 
-                shopUI = null; 
+            this.load.image('fence', 'https://i.imgur.com/C1ff8b1.png');
+            this.load.image('ground', 'https://i.imgur.com/whjeRzh.png');
+            this.load.image('bear', 'https://i.imgur.com/8ZKZgml.png');
+            this.load.image('hive', 'https://i.imgur.com/SgrOSOn.png'); 
+        }
+
+        function create() {
+            isGameOver = false; isPaused = true; score = 0; bearSpeed = 350; dayTime = 0; gameOverText = null;
+
+            const centerX = window.innerWidth / 2;
+            const tileW = 400;
+
+            const fenceGroup = this.physics.add.staticGroup();
+            const invisibleWalls = this.physics.add.staticGroup();
+            hives = this.physics.add.group();
+            bees = this.physics.add.group();
+
+            if (!this.textures.exists('bee')) {
+                let bG = this.make.graphics({x: 0, y: 0, add: false});
+                bG.fillStyle(0xffff00, 1); bG.fillCircle(5, 5, 5);
+                bG.fillStyle(0x000000, 1); bG.fillRect(2, 2, 6, 2);
+                bG.generateTexture('bee', 10, 10);
+            }
+
+            // Рисуем мир
+            for (let y = -5; y < 15; y++) {
+                for (let x = -5; x < 15; x++) {
+                    let tx = (x - y) * (tileW / 2) + centerX;
+                    let ty = (x + y) * 100 + 200;
+                    let tile = this.add.image(tx, ty, 'ground').setDisplaySize(tileW, tileW);
+                    
+                    if (x < 0 || x > 7 || y < 0 || y > 7) {
+                        tile.setTint(0x666666).setDepth(ty - 1000);
+                        tile.isBG = true;
+                    } else {
+                        tile.setDepth(ty);
+                        if (x === 0 || x === 7 || y === 0 || y === 7) {
+                            let finalY = ty, flip = false, originX = 0.5, yOff = 190;
+                            if (x === 0 && y !== 7) { flip = true; originX = 0.6; yOff = -5; }
+                            else if (y === 0 && x !== 7) { flip = false; originX = 0.4; yOff = -5; }
+                            else if (x === 7) { finalY -= 35; flip = true; originX = 0.4; yOff = 155; }
+                            else if (y === 7) { finalY -= 35; flip = false; originX = 0.6; yOff = 155; }
+
+                            let f = fenceGroup.create(tx, finalY, 'fence').setDisplaySize(220, 220).setDepth(ty + 100).setFlipX(flip).setOrigin(originX, 0.85).refreshBody();
+                            f.body.setSize(160, 20).setOffset(flip ? 30 : 60, yOff);
+                        }
+                    }
+                }
+            }
+
+            // Углы
+            [{x:0.5, y:-1}, {x:7.5, y:-0.5}, {x:0.5, y:7}, {x:7.5, y:7.5}].forEach(pos => {
+                let tx = (pos.x - pos.y) * 200 + centerX;
+                let ty = (pos.x + pos.y) * 100 + 200;
+                invisibleWalls.create(tx, ty, 'ground').setVisible(false).refreshBody().body.setSize(120, 120).setOffset(140, 140);
             });
 
-            // Логика покупок
-            b1.on('pointerdown', () => {
-                if (score >= upgradeClickCost) {
-                    score -= upgradeClickCost; clickPower++; 
-                    upgradeClickCost = Math.floor(upgradeClickCost * 1.8);
-                    t1.setText(`УЛУЧШИТЬ ТАП\nЦена: ${upgradeClickCost}`); updateUI(); saveGame();
+            // МЕДВЕДЬ
+            bear = this.physics.add.sprite(centerX, 500, 'bear').setDisplaySize(BEAR_W, BEAR_H).setOrigin(0.5, 0.9).setDepth(2000);
+            
+            // ВТОРОЙ ХИТБОКС ДЛЯ ПЧЕЛ (Сенсор)
+            // Мы создаем зону, которая меньше медведя и находится в центре его спрайта
+            beeSensor = this.add.rectangle(bear.x, bear.y - 70, 40, 40, 0xffffff, 0); 
+            this.physics.add.existing(beeSensor);
+            beeSensor.body.setAllowGravity(false);
+
+            bear.shadow = this.add.ellipse(bear.x, bear.y, 80, 40, 0x000000, 0.3).setDepth(1999);
+
+            scoreText = this.add.text(25, 25, 'МЁД: 0', { 
+                fontSize: '40px', fill: '#FFD700', fontFamily: 'Arial Black', stroke: '#000', strokeThickness: 5 
+            }).setScrollFactor(0).setDepth(10000).setVisible(false);
+
+            uiCamera = this.cameras.add(0, 0, window.innerWidth, window.innerHeight);
+            this.cameras.main.startFollow(bear, true, 0.08, 0.08);
+
+            // Коллизии
+            this.physics.add.collider(bear, fenceGroup, hitObject, null, this);
+            this.physics.add.collider(bear, invisibleWalls, hitObject, null, this);
+            this.physics.add.overlap(bear, hives, collectHoney, null, this);
+            
+            // Пчелы взаимодействуют только с ВТОРЫМ хитбоксом (beeSensor)
+            this.physics.add.overlap(beeSensor, bees, (s, b) => { if(b.body.enable) hitObject.call(this); }, null, this);
+
+            createMenu.call(this);
+
+            this.cameras.main.ignore([scoreText, menuContainer]);
+            this.children.list.forEach(c => { if(c !== scoreText && c !== menuContainer) uiCamera.ignore(c); });
+            this.physics.pause();
+        }
+
+        function createMenu() {
+            menuContainer = this.add.container(window.innerWidth / 2, window.innerHeight / 2).setDepth(100000);
+            const bg = this.add.rectangle(0, 0, 450, 400, 0x000000, 0.9).setStrokeStyle(4, 0xffd700);
+            const title = this.add.text(0, -140, 'СЛОЖНОСТЬ', { fontSize: '32px', fontFamily: 'Arial Black', fill: '#fff' }).setOrigin(0.5);
+            const bStyle = { fontSize: '24px', fontFamily: 'Arial Black', fill: '#000', backgroundColor: '#ffd700', padding: { x: 20, y: 10 } };
+            const b1 = this.add.text(0, -40, ' ЛЕГКО (15%) ', bStyle).setOrigin(0.5).setInteractive({useHandCursor: true});
+            const b2 = this.add.text(0, 50, ' НОРМА (40%) ', bStyle).setOrigin(0.5).setInteractive({useHandCursor: true});
+            const b3 = this.add.text(0, 140, ' АД (75%) ', bStyle).setOrigin(0.5).setInteractive({useHandCursor: true});
+            b1.on('pointerdown', () => startGame.call(this, 180, 15));
+            b2.on('pointerdown', () => startGame.call(this, 240, 40));
+            b3.on('pointerdown', () => startGame.call(this, 320, 75));
+            menuContainer.add([bg, title, b1, b2, b3]).setScrollFactor(0);
+        }
+
+        function startGame(speed, chance) {
+            currentDifficulty = { beeSpeed: speed, spawnChance: chance };
+            isPaused = false; menuContainer.destroy(); scoreText.setVisible(true);
+            this.physics.resume(); for (let i = 0; i < 6; i++) spawnHive(this);
+        }
+
+        function hitObject() {
+            if (isGameOver || isPaused) return;
+            isGameOver = true; this.physics.pause();
+            bear.setTint(0xff0000); this.cameras.main.shake(500, 0.02);
+
+            if (!gameOverText) {
+                gameOverText = this.add.text(window.innerWidth/2, window.innerHeight/2, 'МЕДВЕДЬ В ЩЕПКИ!\nКЛИКНИ ДЛЯ РЕСТАРТА', {
+                    fontSize: '40px', fill: '#ff0000', fontFamily: 'Arial Black', align: 'center', stroke: '#000', strokeThickness: 8
+                }).setOrigin(0.5).setDepth(200000).setScrollFactor(0);
+                this.cameras.main.ignore(gameOverText);
+            }
+            this.input.once('pointerdown', () => { isPaused = true; this.scene.restart(); });
+        }
+
+        function collectHoney(p, h) {
+            if (isPaused || isGameOver) return;
+            score += 10; bearSpeed += 40; scoreText.setText('МЁД: ' + score);
+            if (score % 100 === 0) this.cameras.main.shake(300, 0.004);
+            if (Phaser.Math.Between(1, 100) <= currentDifficulty.spawnChance) spawnBee(this, h.x, h.y);
+            h.destroy(); this.tweens.add({ targets: bear, y: bear.y-30, duration: 100, yoyo: true });
+            this.time.delayedCall(2000, () => spawnHive(this));
+        }
+
+        function spawnHive(scene) {
+            if (isPaused || isGameOver) return;
+            let gx = Phaser.Math.Between(1, 6), gy = Phaser.Math.Between(1, 6);
+            let tx = (gx - gy) * 200 + (window.innerWidth/2), ty = (gx + gy) * 100 + 200;
+            let hive = hives.create(tx, ty, 'hive').setDisplaySize(180, 180).setOrigin(0.5, 0.9).setDepth(ty + 10);
+            uiCamera.ignore(hive);
+        }
+
+        function spawnBee(scene, x, y) {
+            let b = bees.create(x, y, 'bee').setScale(2).setDepth(3000).setAlpha(0.3);
+            b.body.enable = false;
+            scene.tweens.add({ targets: b, scale: 2.8, duration: 150, yoyo: true, repeat: -1 });
+            scene.time.delayedCall(1000, () => { if (b.active) { b.body.enable = true; b.setAlpha(1); } });
+            uiCamera.ignore(b);
+        }
+
+function update(time, delta) {
+            if (isPaused || isGameOver) return;
+            
+            // Привязываем сенсор к груди медведя
+            beeSensor.x = bear.x;
+            beeSensor.y = bear.y - 70;
+
+            dayTime += delta;
+            let glow = 0.5 + 0.5 * Math.sin((dayTime / DAY_DURATION) * Math.PI * 2);
+            const tint = Phaser.Display.Color.GetColor(50 + (205 * glow), 50 + (205 * glow * 0.8), 140 + (115 * glow * 0.6));
+            this.children.list.forEach(c => { 
+                if ((c.type === 'Image' || c.type === 'Sprite') && !c.isBG && c !== bear.shadow) c.setTint(tint); 
+            });
+
+            let tZoom = 1 + Phaser.Math.Clamp((bearSpeed - 350) / 1500, 0, 0.6);
+            this.cameras.main.zoom = Phaser.Math.Linear(this.cameras.main.zoom, tZoom, 0.05);
+
+            const p = this.input.activePointer;
+
+            // ОБНОВЛЕННОЕ ДВИЖЕНИЕ ПЧЕЛ
+            bees.getChildren().forEach(b => { 
+                if (b.body.enable) {
+                    // Теперь пчелы летят в грудь!
+                    this.physics.moveTo(b, bear.x, bear.y - 70, currentDifficulty.beeSpeed); 
+                    b.flipX = (bear.x < b.x); 
                 }
             });
 
-            b2.on('pointerdown', () => {
-                if (score >= upgradeAutoCost) {
-                    score -= upgradeAutoCost; autoClickRate++; 
-                    upgradeAutoCost = Math.floor(upgradeAutoCost * 1.6);
-                    t2.setText(`АВТО-БОТ\nЦена: ${upgradeAutoCost}`); updateUI(); saveGame();
-                }
-            });
+            if (p.isDown) {
+                this.physics.moveTo(bear, p.worldX, p.worldY, bearSpeed);
+                bear.flipX = (p.worldX < bear.x);
+                if (!walkTween) walkTween = this.tweens.add({ targets: bear, angle: { from: -4, to: 4 }, duration: 150, yoyo: true, repeat: -1 });
+                walkTween.setTimeScale(bearSpeed / 350);
+            } else {
+                if (bear.body) bear.setVelocity(0); 
+                bear.setAngle(0);
+                if (walkTween) { walkTween.stop(); walkTween = null; }
+            }
+            bear.shadow.x = bear.x; bear.shadow.y = bear.y; 
+            bear.setDepth(bear.y + 100);
         }
-
-        // Автоклик
-        this.time.addEvent({ delay: 1000, callback: () => { score += autoClickRate; updateUI(); }, loop: true });
-
-        function updateUI() {
-            scoreText.setText(Math.floor(score));
-            infoText.setText(`ТАП: +${clickPower} | АВТО: ${autoClickRate}/с`);
-        }
-        updateUI();
-    }
-
-    function saveGame() {
-        localStorage.setItem('cyberSave', JSON.stringify({
-            score, clickPower, autoClickRate, upgradeClickCost, upgradeAutoCost
-        }));
-    }
-</script>
+    </script>
 </body>
 </html>
-
